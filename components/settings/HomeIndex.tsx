@@ -12,6 +12,7 @@ import {
   getUserViewsApi,
 } from "@jellyfin/sdk/lib/utils/api";
 import { type QueryFunction, useQuery } from "@tanstack/react-query";
+import { AxiosResponse } from "axios";
 import { useNavigation, useRouter, useSegments } from "expo-router";
 import { useAtomValue } from "jotai";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -53,6 +54,20 @@ type MediaListSectionType = {
   queryFn: QueryFunction<BaseItemDto>;
 };
 
+type HomeScreenSectionInfo = {
+  Section?: string;
+  DisplayText?: string;
+  Limit: number;
+  Route?: string;
+  AdditionalData?: string;
+  ContainerClass?: string;
+  ViewMode?: number;
+  DisplayTitleText: boolean;
+  ShowDetailsMenu: boolean;
+  OriginalPayload?: object;
+  AllowViewModeChange: boolean;
+};
+
 type Section = ScrollingCollectionListSection | MediaListSectionType;
 
 export const HomeIndex = () => {
@@ -81,6 +96,10 @@ export const HomeIndex = () => {
     retryCheck,
   } = useNetworkStatus();
   const invalidateCache = useInvalidatePlaybackProgressCache();
+  const [hssSectionResponse, setHssSectionResponse] = useState<
+    Section[] | null
+  >(null);
+
   useEffect(() => {
     // Only invalidate cache when transitioning from offline to online
     if (isConnected && !prevIsConnected.current) {
@@ -365,7 +384,90 @@ export const HomeIndex = () => {
     return ss;
   }, [api, user?.Id, settings?.home?.sections]);
 
-  const sections = settings?.home?.sections ? customSections : defaultSections;
+  // Support for Home Screen Sections - optionally enabled via the Plugin YAML settings
+  const fetchHomeScreenSections = async () => {
+    const _sections: Section[] = [];
+    let response: AxiosResponse<{ Items: HomeScreenSectionInfo[] }> | undefined;
+
+    try {
+      if (user !== null) {
+        // Get the sections configured in the plugin for the user.
+        response = await api?.get<{ Items: HomeScreenSectionInfo[] }>(
+          `/HomeScreen/Sections?userId=${user?.Id}&language=en-GB`,
+        );
+      }
+    } catch (error) {
+      console.error("Error fetching data:", error);
+      return [];
+    }
+
+    if (response !== undefined && user !== null) {
+      response.data.Items.forEach((section) => {
+        // Remove the sections that shouldn't supported by Streamyfin
+        if (
+          section.Section === "MyMedia" ||
+          section.Section?.startsWith("Discover")
+        ) {
+          return;
+        }
+
+        _sections.push({
+          title: section.DisplayText,
+          queryKey: [
+            "home",
+            section.Section,
+            user.Id,
+            section.AdditionalData ?? null,
+          ],
+          queryFn: async () => {
+            try {
+              let url = `/HomeScreen/Section/${section.Section}?UserId=${user.Id}`;
+
+              if (section.AdditionalData !== undefined) {
+                url += `&AdditionalData=${section.AdditionalData}`;
+              }
+
+              const items = (await api?.get<{ Items: BaseItemDto[] }>(url))
+                ?.data.Items;
+
+              if (items !== undefined && items !== null) {
+                return items.filter((item) => item !== null) || [];
+              }
+
+              return [];
+            } catch (error) {
+              console.error("Error fetching data:", error);
+              return [];
+            }
+          },
+          type: "ScrollingCollectionList",
+          orientation: "horizontal",
+        });
+      });
+    }
+    setHssSectionResponse(_sections);
+  };
+
+  const hssSections = useMemo(() => {
+    if (hssSectionResponse !== null && hssSectionResponse.length > 0) {
+      return hssSectionResponse;
+    }
+
+    if (api !== null) {
+      fetchHomeScreenSections();
+    }
+
+    return hssSectionResponse || [];
+  }, [api, hssSectionResponse, user?.Id]);
+
+  let sections = settings?.home?.sections ? customSections : defaultSections;
+  if (
+    settings?.home?.mode === "hss" ||
+    (settings?.home?.mode === "home-screen-sections" &&
+      (hssSections.length || 0) > 0)
+  ) {
+    sections = hssSections;
+  }
 
   if (!isConnected || serverConnected !== true) {
     let title = "";

@@ -84,6 +84,7 @@ export enum DownloadMethod {
 }
 
 export type Home = {
+  mode: string;
   sections: Array<HomeSection>;
 };
 
