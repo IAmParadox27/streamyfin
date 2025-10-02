@@ -13,6 +13,7 @@ import {
 } from "@jellyfin/sdk/lib/utils/api";
 import { type QueryFunction, useQuery } from "@tanstack/react-query";
 import { AxiosResponse } from "axios";
+import { getLocales } from "expo-localization";
 import { useNavigation, useRouter, useSegments } from "expo-router";
 import { useAtomValue } from "jotai";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -391,9 +392,11 @@ export const HomeIndex = () => {
 
     try {
       if (user !== null) {
+        const language =
+          settings?.preferedLanguage ?? getLocales()[0].languageCode ?? "en";
         // Get the sections configured in the plugin for the user.
         response = await api?.get<{ Items: HomeScreenSectionInfo[] }>(
-          `/HomeScreen/Sections?userId=${user?.Id}&language=en-GB`,
+          `/HomeScreen/Sections?userId=${user?.Id}&language=${language}`,
         );
       }
     } catch (error) {
@@ -458,7 +461,7 @@ export const HomeIndex = () => {
     }
 
     return hssSectionResponse || [];
-  }, [api, hssSectionResponse, user?.Id]);
+  }, [api, hssSectionResponse, user?.Id, settings?.preferedLanguage]);
 
   let sections = settings?.home?.sections ? customSections : defaultSections;
   if (
